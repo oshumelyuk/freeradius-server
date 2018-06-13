@@ -815,7 +815,7 @@ autz_redo:
 	if (request->reply->code == 0) {
 		request->reply->code = PW_AUTHENTICATION_ACK;
 	}
-	
+
 	if ((module_msg = pairfind(request->packet->vps, PW_MODULE_SUCCESS_MESSAGE)) != NULL) {
 		char msg[MAX_STRING_LEN+12];
 
@@ -825,6 +825,7 @@ autz_redo:
 
 		/// disable in tunnel: else we have copy(in_tunnel/out_tunnel)
 		if (request->packet->dst_port != 0) {
+			pairadd(&request->packet->vps, paircopy(request->reply->vps));
 			radius_exec_logger_centrale(request, "60054", "Authenticate status '%s'", "OK");
 		}
 	} else {
@@ -832,6 +833,7 @@ autz_redo:
 
 		/// disable in tunnel: else we have copy(in_tunnel/out_tunnel)
 		if (request->packet->dst_port != 0) {
+			pairadd(&request->packet->vps, paircopy(request->reply->vps));
 			radius_exec_logger_centrale(request, "60055", "Authenticate status '%s'", "OK");
 		}
 	}

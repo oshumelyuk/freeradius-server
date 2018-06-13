@@ -36,6 +36,8 @@ RCSID("$Id$")
 #include	"mschap.h"
 #include	"smbdes.h"
 
+#include <uuid/uuid.h>
+
 #ifdef __APPLE__
 extern int od_mschap_auth(REQUEST *request, VALUE_PAIR *challenge, VALUE_PAIR * usernamepair);
 #endif
@@ -142,7 +144,7 @@ typedef struct rlm_mschap_t {
 	char *retry_msg;
 #ifdef __APPLE__
 	int  open_directory;
-#endif  
+#endif
 } rlm_mschap_t;
 
 
@@ -723,32 +725,38 @@ static int do_mschap(rlm_mschap_t *inst,
 
 		memset(nthashhash, 0, 16);
 
+		char *uuid_context_id = gen_uuid();
+		if (!radius_pairmake(request, &request->packet->vps, "P-Context-ID", uuid_context_id, T_OP_SET)) {
+			radlog(L_ERR, "rlm_mschap.c do_mschap for send on BE: Failed creating P-Context-ID");
+		}
+
 		/*
 		 *	Run the program, and expect that we get 16
 		 */
 		result = radius_exec_program_centrale(inst->ntlm_auth, request,
-					     TRUE, /* wait */
-					     buffer, sizeof(buffer),
-					     inst->ntlm_auth_timeout,
-					     request->packet->vps, &answer, 1, 60025);
+					TRUE, /* wait */
+					buffer, sizeof(buffer),
+					inst->ntlm_auth_timeout,
+					request->packet->vps, &answer, 1, 60025);
 		if (result != 0) {
 			char *p;
 			VALUE_PAIR *vp = NULL;
 			RDEBUG2("External script failed.");
 			if (answer != NULL) {
 			    if (output_pairs) {
-				RDEBUG2("Adding failure variables to the reply");
-				pairmove(output_pairs, &answer);
-				for (vp = *output_pairs; vp != NULL; vp = vp->next) {
-				    RDEBUG("Failure variable: %s=%s\n", vp->name, vp->vp_strvalue);
+					RDEBUG2("Adding failure variables to the reply");
+					pairmove(output_pairs, &answer);
+					for (vp = *output_pairs; vp != NULL; vp = vp->next) {
+						RDEBUG("Failure variable: %s=%s\n", vp->name, vp->vp_strvalue);
+					}
 				}
-			    }
-			    pairfree(&answer);
+				pairfree(&answer);
 			}
 
 			vp = pairmake("Module-Failure-Message", "", T_OP_EQ);
 			if (!vp) {
 				radlog_request(L_ERR, 0, request, "No memory to allocate Module-Failure-Message");
+				if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 				return RLM_MODULE_FAIL;
 			}
 
@@ -760,6 +768,7 @@ static int do_mschap(rlm_mschap_t *inst,
 			vp->length = strlen(vp->vp_strvalue);
 			pairadd(&request->packet->vps, vp);
 
+			if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 			return -1;
 		}
 
@@ -781,6 +790,7 @@ static int do_mschap(rlm_mschap_t *inst,
 		 */
 		if (memcmp(buffer, "NT_KEY: ", 8) != 0) {
 			RDEBUG2("Invalid output from ntlm_auth: expecting NT_KEY");
+			if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 			return -1;
 		}
 
@@ -790,6 +800,7 @@ static int do_mschap(rlm_mschap_t *inst,
 		 */
 		if (strlen(buffer + 8) < 32) {
 			RDEBUG2("Invalid output from ntlm_auth: NT_KEY has unexpected length");
+			if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 			return -1;
 		}
 
@@ -798,16 +809,21 @@ static int do_mschap(rlm_mschap_t *inst,
 		 */
 		if (fr_hex2bin(buffer + 8, nthashhash, 16) != 16) {
 			RDEBUG2("Invalid output from ntlm_auth: NT_KEY has non-hex values");
+			if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 			return -1;
 		}
 
 		if (answer != NULL) {
-	    	    if (output_pairs != NULL) {
-			RDEBUG2("Moving script value pairs to the reply");
-			pairmove(output_pairs, &answer);
-		    }
-		    pairfree(&answer);
+			if (output_pairs != NULL) {
+				RDEBUG2("Moving script value pairs to the reply");
+				pairmove(output_pairs, &answer);
+				if (!radius_pairmake(request, output_pairs, "P-Context-ID", uuid_context_id, T_OP_SET)) {
+					radlog(L_ERR, "rlm_mschap.c do_mschap copy for 'Login OK': Failed creating P-Context-ID");
+				}
+			}
+			pairfree(&answer);
 		}
+		if(uuid_context_id){ free(uuid_context_id); uuid_context_id = NULL;}
 	}
 
 	return 0;
@@ -1235,7 +1251,7 @@ static int mschap_authenticate(void * instance, REQUEST *request)
 		} else {
 			name_attr = username;
 		}
-		
+
 		/*
 		 *	with_ntdomain_hack moved here, too.
 		 */
@@ -1249,7 +1265,7 @@ static int mschap_authenticate(void * instance, REQUEST *request)
 		} else {
 			username_string = name_attr->vp_strvalue;
 		}
-		
+
 		/*
 		 *	When the names are ASCII, they should be
 		 *	identical.  When the names are non-ASCII,
@@ -1433,6 +1449,22 @@ static int mschap_authenticate(void * instance, REQUEST *request)
 	return RLM_MODULE_OK;
 #undef inst
 }
+
+char* gen_uuid(){
+	uuid_t uuid;
+
+	// generate
+	uuid_generate_time_safe(uuid);
+
+	// unparse (to string)
+	char uuid_str[37];      // ex. "1b4e28ba-2fa1-11d2-883f-0016d3cca427" + "\0"
+
+	// parse (from string)
+	uuid_unparse_lower(uuid, uuid_str);
+
+	return strdup(uuid_str);
+}
+
 
 module_t rlm_mschap = {
 	RLM_MODULE_INIT,

@@ -1616,6 +1616,9 @@ _ACEOF
 ac_status=$?
 fi
 
+# include uuid
+LIBS="-luuid  $LIBS"
+
 if test "$ac_init_help" = "recursive"; then
   # If there are subdirs, report their specific --help.
   for ac_dir in : $ac_subdirs_all; do test "x$ac_dir" = x: && continue

@@ -572,6 +572,9 @@ int		rad_authenticate (REQUEST *);
 int		rad_postauth(REQUEST *);
 int		rad_virtual_server(REQUEST *);
 
+/* rlm_mschap.c */
+char*	gen_uuid();
+
 /* exec.c */
 int		radius_exec_program(const char *,  REQUEST *, int,
 				    char *user_msg, int msg_len,
